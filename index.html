@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>CSV File Data Lookup Tool</title>
+    <title>CSV Data Lookup</title>
     <style>
-        :root { --primary: #2563eb; --bg: #f8fafc; --border: #e2e8f0; --accent: #f59e0b; }
+        :root { --primary: #2563eb; --bg: #f8fafc; --border: #e2e8f0; --accent: #f59e0b; --success: #22c55e; }
         body { font-family: system-ui, sans-serif; background: var(--bg); padding: 20px; margin: 0; }
         .container { max-width: 1400px; margin: auto; }
         
@@ -13,31 +13,36 @@
         .controls { display: grid; grid-template-columns: 350px 1fr; gap: 20px; }
         .input-group { display: flex; flex-direction: column; gap: 8px; }
         
-        textarea { padding: 12px; border: 2px solid var(--border); border-radius: 8px; min-height: 80px; font-family: monospace; resize: vertical; }
+        textarea { padding: 12px; border: 2px solid var(--border); border-radius: 8px; min-height: 80px; font-family: monospace; resize: vertical; outline: none; }
+        textarea:focus { border-color: var(--primary); }
         
-        #searchBtn { padding: 12px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
-        #searchBtn:hover { background: #1d4ed8; }
+        /* Minimalist Indicator */
+        .status-dot-container { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 600; margin-top: 4px; color: #64748b; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; transition: background 0.3s; }
+        .dot.active { background: var(--success); box-shadow: 0 0 8px var(--success); }
+        .ready-text { color: var(--success); display: none; }
+
+        #searchBtn { padding: 12px; background: #94a3b8; color: white; border: none; border-radius: 6px; cursor: not-allowed; font-weight: bold; transition: all 0.3s; }
+        #searchBtn.ready { background: var(--primary); cursor: pointer; }
+        #searchBtn.ready:hover { background: #1d4ed8; }
 
         /* Progress Bar */
-        #progressContainer { display: none; margin-top: 15px; background: #eee; border-radius: 10px; overflow: hidden; height: 12px; }
+        #progressContainer { display: none; margin-top: 15px; background: #eee; border-radius: 10px; overflow: hidden; height: 8px; }
         #progressBar { width: 0%; height: 100%; background: var(--primary); transition: width 0.1s; }
 
-        /* Help Button & Modal */
-        .help-btn { position: absolute; top: 20px; right: 20px; background: var(--accent); color: white; border: none; padding: 8px 15px; border-radius: 20px; cursor: pointer; font-weight: bold; font-size: 0.8rem; }
+        /* Help Modal */
+        .help-btn { position: absolute; top: 20px; right: 20px; background: var(--accent); color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; }
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; backdrop-filter: blur(3px); }
-        .modal { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 12px; width: 500px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
-        .modal h3 { margin-top: 0; color: var(--primary); }
-        .modal ol { padding-left: 20px; line-height: 1.6; }
-        .close-modal { margin-top: 20px; background: #64748b; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; width: 100%; }
+        .modal { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 12px; width: 450px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        .close-modal { margin-top: 20px; background: #64748b; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; width: 100%; }
 
         /* Table */
         .table-wrapper { background: white; border-radius: 8px; border: 1px solid var(--border); overflow: auto; max-height: 600px; margin-top: 20px; }
         table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-        th { background: #f8fafc; padding: 12px; text-align: left; border-bottom: 2px solid var(--border); position: sticky; top: 0; }
+        th { background: #f8fafc; padding: 12px; text-align: left; border-bottom: 2px solid var(--border); position: sticky; top: 0; z-index: 5; }
         td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
-        tr:hover { background: #f1f7ff; }
         
-        .status-msg { font-size: 0.85rem; color: #64748b; margin-top: 10px; font-weight: bold; }
+        .status-msg { font-size: 0.8rem; color: #64748b; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -46,7 +51,7 @@
     <div id="modalOverlay" class="modal-overlay">
         <div class="modal">
             <h3>📖 User Instructions</h3>
-            <p>To process large files (1GB+) without memory errors, please follow these steps:</p>
+            <b><center><p>Use this tool to filter and analyze data<br>from your LiveVox Call Detail Record (CDR) files.</center><br>Please follow these steps below:</p></b>
             <ol>
                 <li><b>Convert to CSV:</b> Open your Excel file, go to <i>File > Save As</i> and select <b>CSV (Comma Delimited)</b>.</li>
                 <li><b>Select File:</b> Click "Choose File" and pick the .csv version.</li>
@@ -64,22 +69,27 @@
 
     <div class="header">
         <button class="help-btn" onclick="toggleHelp()">❔ Help & Instructions</button>
-        <h2 style="margin:0 0 10px 0;">📦CSV File Data Lookup Tool</h2>
+        <h2 style="margin:0 0 15px 0; font-size: 1.25rem;">📦CSV File Data Lookup Tool</h2>
         
         <div class="controls">
             <div class="input-group">
-                <label>1. Select CSV File</label>
+                <label style="font-size: 0.8rem; font-weight: 600; color: #64748b;">1. Select CSV File</label>
                 <input type="file" id="fileInput" accept=".csv">
+                <div class="status-dot-container">
+                    <div id="statusDot" class="dot"></div>
+                    <span id="statusLabel">No file linked</span>
+                    <span id="readyLabel" class="ready-text">READY</span>
+                </div>
             </div>
             <div class="input-group">
-                <label>2. Paste Keywords (Any matching row will show)</label>
-                <textarea id="searchInput" placeholder="Paste codes here (e.g. UA741T... UA7BT...)"></textarea>
-                <button id="searchBtn">Run Search Across File</button>
+                <label style="font-size: 0.8rem; font-weight: 600; color: #64748b;">2. Paste Keywords</label>
+                <textarea id="searchInput" placeholder="Paste keyword here (e.g. Session ID, Phone Num, Transaction ID...)"></textarea>
+                <button id="searchBtn" disabled>Run Search</button>
             </div>
         </div>
 
         <div id="progressContainer"><div id="progressBar"></div></div>
-        <div id="status" class="status-msg">Ready.</div>
+        <div id="status" class="status-msg">System Idle.</div>
     </div>
 
     <div class="table-wrapper">
@@ -99,24 +109,44 @@
     const fileInput = document.getElementById('fileInput');
     const searchInput = document.getElementById('searchInput');
     const searchBtn = document.getElementById('searchBtn');
+    const statusDot = document.getElementById('statusDot');
+    const statusLabel = document.getElementById('statusLabel');
+    const readyLabel = document.getElementById('readyLabel');
     const tableBody = document.getElementById('tableBody');
     const tableHead = document.getElementById('tableHead');
     const progressBar = document.getElementById('progressBar');
     const progressContainer = document.getElementById('progressContainer');
     const status = document.getElementById('status');
 
+    // Minimal Load Detection
+    fileInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            statusDot.className = "dot active";
+            statusLabel.style.display = "none";
+            readyLabel.style.display = "inline";
+            searchBtn.disabled = false;
+            searchBtn.className = "ready";
+            status.innerText = `Ready to scan: ${file.name}`;
+        } else {
+            statusDot.className = "dot";
+            statusLabel.style.display = "inline";
+            readyLabel.style.display = "none";
+            searchBtn.disabled = true;
+            searchBtn.className = "";
+        }
+    };
+
     searchBtn.onclick = async () => {
         const file = fileInput.files[0];
         const terms = searchInput.value.toLowerCase().trim().split(/[\s,]+/).filter(t => t);
         
-        if (!file) return alert("Please select a CSV file first.");
-        if (terms.length === 0) return alert("Please enter keywords.");
+        if (!file || terms.length === 0) return;
 
-        // Clear UI for fresh search
         tableBody.innerHTML = "";
         tableHead.innerHTML = "";
         progressContainer.style.display = "block";
-        status.innerText = "Scanning file on disk...";
+        status.innerText = "Processing Data Search...";
 
         const stream = file.stream();
         const reader = stream.getReader();
@@ -133,8 +163,7 @@
             if (done) break;
 
             fileProcessed += value.length;
-            const percent = ((fileProcessed / file.size) * 100).toFixed(1);
-            progressBar.style.width = percent + "%";
+            progressBar.style.width = ((fileProcessed / file.size) * 100) + "%";
 
             const chunk = decoder.decode(value, { stream: true });
             const lines = (partialLine + chunk).split(/\r?\n/);
@@ -145,12 +174,10 @@
                 if (!line.trim()) continue;
 
                 if (rowCount === 0) {
-                    // Initialize Headers
                     headers = line.split(',').map(h => h.trim());
                     tableHead.innerHTML = headers.map(h => `<th>${h}</th>`).join('');
                 } else {
                     const lowerLine = line.toLowerCase();
-                    // "OR" Logic - check if at least one term is in the line
                     if (terms.some(t => lowerLine.includes(t))) {
                         const cells = line.split(',');
                         const rowHtml = `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
@@ -161,8 +188,7 @@
                 rowCount++;
             }
         }
-        
-        status.innerText = `Search Complete! Found ${matchCount} matching rows out of ${rowCount.toLocaleString()}.`;
+        status.innerText = `Scan complete. Found ${matchCount} matches in ${rowCount.toLocaleString()} rows.`;
         progressContainer.style.display = "none";
     };
 </script>

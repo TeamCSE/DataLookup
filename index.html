@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>CDR Lookup - Sorted Output</title>
+    <title>CDR Lookup - Ordered with Match Tracking</title>
     <style>
-        :root { --primary: #2563eb; --bg: #f8fafc; --border: #e2e8f0; --accent: #f59e0b; --success: #22c55e; }
+        :root { --primary: #2563eb; --bg: #f8fafc; --border: #e2e8f0; --accent: #f59e0b; --success: #22c55e; --danger: #ef4444; }
         body { font-family: system-ui, sans-serif; background: var(--bg); padding: 20px; margin: 0; }
         .container { max-width: 1400px; margin: auto; }
         .header { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; border: 1px solid var(--border); position: relative; }
@@ -18,6 +18,11 @@
         .ready-text { color: var(--success); display: none; }
         #searchBtn { padding: 12px; background: #94a3b8; color: white; border: none; border-radius: 6px; cursor: not-allowed; font-weight: bold; transition: all 0.3s; }
         #searchBtn.ready { background: var(--primary); cursor: pointer; }
+        
+        /* Summary Box for Missing Keywords */
+        .summary-box { display: none; margin-top: 15px; padding: 15px; border-radius: 8px; background: #fff; border: 1px solid var(--border); }
+        .missing-list { color: var(--danger); font-weight: bold; font-family: monospace; word-break: break-all; }
+
         #progressContainer { display: none; margin-top: 15px; background: #eee; border-radius: 10px; overflow: hidden; height: 8px; }
         #progressBar { width: 0%; height: 100%; background: var(--primary); transition: width 0.1s; }
         .table-wrapper { background: white; border-radius: 8px; border: 1px solid var(--border); overflow: auto; max-height: 600px; margin-top: 20px; }
@@ -37,11 +42,11 @@
     <div id="modalOverlay" class="modal-overlay">
         <div class="modal">
             <h3>📖 User Instructions</h3>
-            <p><b>This version strictly sorts the output based on the order of keywords you paste.</b></p>
+            <p><b>Strict Order & Exception Tracking:</b></p>
             <ol>
                 <li>Select your <b>CSV</b> file.</li>
-                <li>Paste your IDs/Keywords (one per line, or space-separated).</li>
-                <li>The tool will scan the file and then rebuild the table to match your input order.</li>
+                <li>Paste your IDs/Keywords.</li>
+                <li>The tool shows matches in your <b>exact order</b> and lists any keywords that were <b>not found</b> in the file.</li>
             </ol>
             <button class="close-modal" onclick="toggleHelp()">Got it!</button>
         </div>
@@ -49,7 +54,7 @@
 
     <div class="header">
         <button class="help-btn" onclick="toggleHelp()">❔ Help</button>
-        <h2 style="margin:0 0 15px 0; font-size: 1.25rem;">📦 CDR Data Lookup (Ordered)</h2>
+        <h2 style="margin:0 0 15px 0; font-size: 1.25rem;">📦 CDR Data Lookup (With Exception Tracking)</h2>
         <div class="controls">
             <div class="input-group">
                 <label style="font-size: 0.8rem; font-weight: 600; color: #64748b;">1. Select CSV File</label>
@@ -66,7 +71,14 @@
                 <button id="searchBtn" disabled>Run Search</button>
             </div>
         </div>
+        
         <div id="progressContainer"><div id="progressBar"></div></div>
+        
+        <div id="summaryBox" class="summary-box">
+            <div style="font-size: 0.85rem; font-weight: bold; margin-bottom: 5px;">🔍 Search Results Summary:</div>
+            <div id="missingReport" style="font-size: 0.8rem;"></div>
+        </div>
+
         <div id="status" class="status-msg">System Idle.</div>
     </div>
 
@@ -95,6 +107,8 @@
     const progressBar = document.getElementById('progressBar');
     const progressContainer = document.getElementById('progressContainer');
     const status = document.getElementById('status');
+    const summaryBox = document.getElementById('summaryBox');
+    const missingReport = document.getElementById('missingReport');
 
     fileInput.onchange = (e) => {
         const file = e.target.files[0];
@@ -110,19 +124,17 @@
 
     searchBtn.onclick = async () => {
         const file = fileInput.files[0];
-        // Clean up keywords and keep them in their specific array order
         const originalTerms = searchInput.value.trim().split(/[\s,]+/).filter(t => t);
-        const lowerTerms = originalTerms.map(t => t.toLowerCase());
         
         if (!file || originalTerms.length === 0) return;
 
         // Reset UI
         tableBody.innerHTML = "";
         tableHead.innerHTML = "";
+        summaryBox.style.display = "none";
         progressContainer.style.display = "block";
-        status.innerText = "Scanning file (Phase 1: Finding data)...";
+        status.innerText = "Analyzing file content...";
 
-        // Initialize a Map to hold matches for each specific keyword
         const resultsMap = new Map();
         originalTerms.forEach(term => resultsMap.set(term.toLowerCase(), []));
 
@@ -134,8 +146,8 @@
         let rowCount = 0;
         let fileProcessed = 0;
         let headers = "";
+        const lowerTerms = Array.from(resultsMap.keys());
 
-        // PHASE 1: Scan file and collect matches into the Map
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -155,7 +167,6 @@
                     headers = line;
                 } else {
                     const lowerLine = line.toLowerCase();
-                    // Check every keyword against this line
                     lowerTerms.forEach(term => {
                         if (lowerLine.includes(term)) {
                             resultsMap.get(term).push(line);
@@ -166,27 +177,44 @@
             }
         }
 
-        // PHASE 2: Render table headers
+        // Headers
         if (headers) {
             const headerCols = headers.split(',').map(h => h.trim());
             tableHead.innerHTML = headerCols.map(h => `<th>${h}</th>`).join('');
         }
 
-        // PHASE 3: Build table body following the EXACT order of input keywords
-        status.innerText = "Finalizing sort and rendering table...";
+        // Final Rendering and Missing Keyword Logic
         let matchCount = 0;
-        
+        let foundKeywordsCount = 0;
+        const missingKeywords = [];
+
         originalTerms.forEach(term => {
             const matches = resultsMap.get(term.toLowerCase());
-            matches.forEach(rowData => {
-                const cells = rowData.split(',');
-                const rowHtml = `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
-                tableBody.insertAdjacentHTML('beforeend', rowHtml);
-                matchCount++;
-            });
+            if (matches && matches.length > 0) {
+                foundKeywordsCount++;
+                matches.forEach(rowData => {
+                    const cells = rowData.split(',');
+                    const rowHtml = `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
+                    tableBody.insertAdjacentHTML('beforeend', rowHtml);
+                    matchCount++;
+                });
+            } else {
+                missingKeywords.push(term);
+            }
         });
 
-        status.innerText = `Success! Found ${matchCount} matches, sorted by your keyword list.`;
+        // Show Summary Report
+        summaryBox.style.display = "block";
+        let reportHTML = `✅ <b>Found:</b> ${foundKeywordsCount} keywords matched.<br>`;
+        
+        if (missingKeywords.length > 0) {
+            reportHTML += `❌ <b>No Match Found (${missingKeywords.length}):</b> <span class="missing-list">${missingKeywords.join(', ')}</span>`;
+        } else {
+            reportHTML += `✨ <b>All keywords matched!</b>`;
+        }
+        missingReport.innerHTML = reportHTML;
+
+        status.innerText = `Search complete. Displaying ${matchCount} total rows.`;
         progressContainer.style.display = "none";
     };
 </script>

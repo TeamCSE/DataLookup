@@ -56,10 +56,10 @@
                 <li><b>Convert to CSV:</b> Open your Excel file, go to <i>File > Save As</i> and select <b>CSV (Comma Delimited)</b>.</li>
                 <li><b>Select File:</b> Click "Choose File" and pick the .csv version.</li>
                 <li><b>Enter Keywords:</b> Paste your codes into the box. You can separate them with spaces, commas, or new lines.</li>
-                <li><b>Run Search:</b> Click "Run Search". The system will read the file line-by-line to save your RAM.</li>
+                <li><b>Run Search:</b> Click "Run Search". The system will read the file and output rows <b>sorted by your keyword list order</b>.</li>
 				<br>
 				<div><b style="color: red;">Note:</b>
-				<span style="color: red;">(For faster searches)<br> Keep only <b>Session ID and Transaction ID</b> in the CSV file. <br>Ensure <b>Transaction ID is formatted as a Number with NO decimal places</b>, as it will be used when updating the PTP value.
+				<span style="color: red;">(For faster searches)<br> Keep only <b>Session ID and Transaction ID</b> in the CSV file. <br>Ensure <b>Transaction ID is formatted as a Number with NO decimal places</b>.
 				</span>
 				</div>
             </ol>
@@ -82,7 +82,7 @@
                 </div>
             </div>
             <div class="input-group">
-                <label style="font-size: 0.8rem; font-weight: 600; color: #64748b;">2. Paste Keywords</label>
+                <label style="font-size: 0.8rem; font-weight: 600; color: #64748b;">2. Paste Keywords (Output will follow this order)</label>
                 <textarea id="searchInput" placeholder="Paste keyword here (e.g. Session ID, Phone Num, Transaction ID...)"></textarea>
                 <button id="searchBtn" disabled>Run Search</button>
             </div>
@@ -118,7 +118,6 @@
     const progressContainer = document.getElementById('progressContainer');
     const status = document.getElementById('status');
 
-    // Minimal Load Detection
     fileInput.onchange = (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -139,6 +138,7 @@
 
     searchBtn.onclick = async () => {
         const file = fileInput.files[0];
+        // Maintain order by keeping terms in their original array position
         const terms = searchInput.value.toLowerCase().trim().split(/[\s,]+/).filter(t => t);
         
         if (!file || terms.length === 0) return;
@@ -146,7 +146,7 @@
         tableBody.innerHTML = "";
         tableHead.innerHTML = "";
         progressContainer.style.display = "block";
-        status.innerText = "Processing Data Search...";
+        status.innerText = "Scanning and sorting data...";
 
         const stream = file.stream();
         const reader = stream.getReader();
@@ -155,8 +155,11 @@
         let headers = [];
         let partialLine = "";
         let rowCount = 0;
-        let matchCount = 0;
         let fileProcessed = 0;
+
+        // Use a Map to store results by keyword to keep track of sorting
+        const resultsMap = new Map();
+        terms.forEach(term => resultsMap.set(term, []));
 
         while (true) {
             const { done, value } = await reader.read();
@@ -178,17 +181,30 @@
                     tableHead.innerHTML = headers.map(h => `<th>${h}</th>`).join('');
                 } else {
                     const lowerLine = line.toLowerCase();
-                    if (terms.some(t => lowerLine.includes(t))) {
-                        const cells = line.split(',');
-                        const rowHtml = `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
-                        tableBody.insertAdjacentHTML('beforeend', rowHtml);
-                        matchCount++;
-                    }
+                    // Check which specific term matches this line and store it
+                    terms.forEach(term => {
+                        if (lowerLine.includes(term)) {
+                            resultsMap.get(term).push(line);
+                        }
+                    });
                 }
                 rowCount++;
             }
         }
-        status.innerText = `Scan complete. Found ${matchCount} matches in ${rowCount.toLocaleString()} rows.`;
+
+        // Render based on Keyword Order
+        let matchCount = 0;
+        terms.forEach(term => {
+            const matches = resultsMap.get(term);
+            matches.forEach(line => {
+                const cells = line.split(',');
+                const rowHtml = `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
+                tableBody.insertAdjacentHTML('beforeend', rowHtml);
+                matchCount++;
+            });
+        });
+
+        status.innerText = `Scan complete. Found ${matchCount} matches sorted by keywords.`;
         progressContainer.style.display = "none";
     };
 </script>
